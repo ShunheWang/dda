@@ -83,5 +83,5 @@ dda/
 
 ## 相关项目
 
-- [rookieDB](https://github.com/berkeley-cs186/fa24-rookiedb) — 加州伯克利 CS186 教学数据库，本项目的数据源
-- [maison-ai-learning-sandbox](https://github.com/shunhewang/maison-ai-learning-sandbox) — 学习过程记录，包含 Multi-Agent 学习笔记、Phase 1/2 demo
+- [rookieDB](https://github.com/ShunheWang/berkeley-sp26-rookiedb) — 本项目的数据源。基于伯克利 CS186 教学数据库骨架代码，新增了 `LockManager.getAllLockInfo()`、`\alllocks` metacommand 等辅助方法，支撑 DDA 的锁状态采集
+- [maison-ai-learning-sandbox](https://github.com/shunhewang/maison-ai-learning-sandbox) — 本项目的学习前身，包含 Multi-Agent 学习笔记、Orchestrator-Worker demo、死锁复现实验
