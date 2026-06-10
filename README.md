@@ -71,11 +71,13 @@ python dda_basic.py
 ```
 dda/
 ├── dda_basic.py          # 主程序
+├── pyproject.toml        # 项目配置（依赖、linting）
 ├── requirements.txt
+├── LICENSE
 ├── docs/
-│   ├── requirements.md   # 需求文档
-│   ├── design.md         # 设计文档
-│   └── decisions.md      # 设计决策记录
+│   ├── requirements.md   # 背景、功能需求、实施路线、验收标准
+│   ├── design.md         # 架构、数据流、组件接口、LLM prompt 设计
+│   └── decisions.md      # 关键设计决策的博弈过程与结论
 └── README.md
 ```
 
