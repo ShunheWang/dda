@@ -1,3 +1,5 @@
+[中文](README.md) | [English](README_EN.md)
+
 # DDA — DB Deadlock Agent
 
 **用 LLM 替代数据库内核固定规则，做 deadlock victim selection。**
@@ -80,7 +82,8 @@ dda/
 │   ├── requirements.md   # 背景、功能需求、实施路线、验收标准
 │   ├── design.md         # 架构、数据流、组件接口、LLM prompt 设计
 │   └── decisions.md      # 关键设计决策的博弈过程与结论
-└── README.md
+├── README.md             # 中文
+└── README_EN.md          # English
 ```
 
 ## 相关项目
