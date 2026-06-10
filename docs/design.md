@@ -1,3 +1,5 @@
+[中文](design.md) | [English](design_EN.md)
+
 # DDA 设计文档
 
 > 状态：待编写

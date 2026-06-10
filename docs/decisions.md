@@ -1,3 +1,5 @@
+[中文](decisions.md) | [English](decisions_EN.md)
+
 # DDA 设计决策记录
 
 > 记录每个重大决策的背景、博弈过程、结论。

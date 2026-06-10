@@ -1,3 +1,5 @@
+[中文](requirements.md) | [English](requirements_EN.md)
+
 # DDA — 数据库死锁检测与 LLM 决策系统
 
 ## 项目背景

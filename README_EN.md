@@ -80,8 +80,11 @@ dda/
 ├── LICENSE
 ├── docs/
 │   ├── requirements.md   # Background, functional requirements, roadmap, acceptance criteria
+│   ├── requirements_EN.md # English version ↑
 │   ├── design.md         # Architecture, data flow, component interfaces, LLM prompt design
-│   └── decisions.md      # Key design decisions — tradeoffs and conclusions
+│   ├── design_EN.md       # English version ↑
+│   ├── decisions.md      # Key design decisions — tradeoffs and conclusions
+│   └── decisions_EN.md    # English version ↑
 ├── README.md             # Chinese
 └── README_EN.md          # English
 ```

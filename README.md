@@ -80,8 +80,11 @@ dda/
 ├── LICENSE
 ├── docs/
 │   ├── requirements.md   # 背景、功能需求、实施路线、验收标准
+│   ├── requirements_EN.md # English version ↑
 │   ├── design.md         # 架构、数据流、组件接口、LLM prompt 设计
-│   └── decisions.md      # 关键设计决策的博弈过程与结论
+│   ├── design_EN.md       # English version ↑
+│   ├── decisions.md      # 关键设计决策的博弈过程与结论
+│   └── decisions_EN.md    # English version ↑
 ├── README.md             # 中文
 └── README_EN.md          # English
 ```
