@@ -20,7 +20,9 @@ build/
 Thumbs.db
 
 # Claude
-.claude/
+.claude/*
+!.claude/skills/
+docs/superpowers/
 
 # Tools
 .ruff_cache/
