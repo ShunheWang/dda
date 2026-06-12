@@ -22,7 +22,7 @@ Thumbs.db
 # Claude
 .claude/*
 !.claude/skills/
-docs/superpowers/
+docs/superpowers/plans/
 
 # Tools
 .ruff_cache/
