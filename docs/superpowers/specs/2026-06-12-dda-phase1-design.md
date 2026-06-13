@@ -25,31 +25,18 @@ graph TB
 
 **数据流**: YAML → 并发事务 → \alllocks → LockSnapshot → WFG(有向图) → DFS 找环 → Victim → \kill
 
-**技术约束**: Python 3 + asyncio + 标准库 + pyyaml + anthropic(阶段二才用)
+**技术约束**: Python 3 + asyncio + 标准库（阶段二加 anthropic）
 
-## 2. 场景文件格式 (YAML)
+## 2. 场景定义
 
-```yaml
-name: "场景名称"
-description: "场景描述"
-setup:
-  - CREATE TABLE ...
-  - INSERT INTO ...
-transactions:
-  - id: T1
-    steps:
-      - sql: UPDATE ...
-        pause: 500        # 可选，上一步执行后等待的毫秒数
-      - sql: UPDATE ...   # 最后一步自动 COMMIT
-  - id: T2
-    steps:
-      - ...
-```
+场景是 `scenarios.py` 中的 async 函数，每个函数：
+- 负责建表、插数据（`_setup_database`）
+- 用 `asyncio.gather` 启动并发事务（`_transaction`）
+- 接受 `(host, port)`，返回执行结果 `dict`
 
-- `setup`: 主连接串行执行，建表插数据
-- `transactions`: 每个 = 独立 TCP 连接 + asyncio task
-- 每个事务自动包裹 BEGIN/COMMIT
-- `pause`: step 之间可选延迟，用于控制时序造死锁
+第一个场景 `two_table_deadlock`: T1 先锁 dda_a 再锁 dda_b，T2 反向，形成 T1↔T2 死锁环。
+
+> **历史注记**：最初设计用 YAML 配置文件定义场景，后续改为 Python 函数——脚本更灵活、不需要额外依赖。
 
 ## 3. 组件
 
@@ -116,6 +103,7 @@ dda/
 ├── test_components.py        # 组件级单元测试
 ├── test_integration.py       # 集成测试
 ├── dda/                      # 核心库
+│   ├── __init__.py
 │   ├── models.py             # 数据结构
 │   ├── connection.py         # TCP 通信
 │   ├── parser.py             # \alllocks 解析
@@ -125,7 +113,6 @@ dda/
 │   ├── executor.py           # \kill 执行
 │   └── monitor.py            # 主循环
 ├── requirements.txt
-├── scenarios/                # YAML 场景文件
 └── docs/
     ├── design.md             # 系统设计（含 Mermaid 配图）
     └── ...

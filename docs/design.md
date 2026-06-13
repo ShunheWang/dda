@@ -446,7 +446,7 @@ select(cycle, snapshot):
 
 **平局**：多个事务在队列中处于相同位置时，选 transNum 最大的（确定性）。
 
-> **状态**：已设计，待实现。阶段一初始实现先跑 MinLocks 和 YoungestFirst，CycleTrigger 在后续迭代中接入。
+> **状态**：已实现。`dda_basic.py` 启动时自动跑三种策略对比。
 
 #### 3.6.4 LLMSelector（阶段二接入点）
 
@@ -483,7 +483,7 @@ async def kill(trans_num, host, port):
     5. 返回 True（响应包含 "rolled back"） / False（其他）
 ```
 
-**设计决策**：每次 kill 打开新连接还是复用 DDA 轮询连接？选**复用**——DDA 的 `\alllocks` 和 `\kill` 共用同一个 TCP 连接，减少建立/断开开销。rookieDB Server 的多线程模型为每个连接分配独立线程，复用不影响隔离性。
+**设计决策**：每次 kill 打开独立 TCP 连接——rookieDB 的事务模型是 ThreadLocal 的，回滚执行在 DDA 线程，与轮询连接分离更安全。连接用完即关，避免状态残留。
 
 **错误场景**：
 

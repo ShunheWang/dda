@@ -104,7 +104,6 @@ dda/
 ├── pyproject.toml            # 项目配置（依赖、linting）
 ├── requirements.txt
 ├── LICENSE
-├── scenarios/                # YAML 场景文件
 ├── .claude/                  # Claude Code 配置（skills、settings）
 ├── docs/
 │   ├── requirements.md       # 背景、功能需求、实施路线、验收标准

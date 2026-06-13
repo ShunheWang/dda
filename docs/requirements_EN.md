@@ -120,7 +120,7 @@ The system continuously monitors lock state during concurrent transaction execut
 | LLM Calls | Anthropic SDK (victim selection only) |
 | Database | rookieDB (local single instance, multi-granularity locks) |
 | Communication | TCP socket (localhost:18600) |
-| Concurrency Model | asyncio | I/O-bound: TCP socket polling + LLM API calls, naturally suited to async/await; single event loop manages both concurrent transactions and DDA, avoiding multi-threaded synchronization overhead |
+| Concurrency Model | asyncio. I/O-bound: TCP socket polling + LLM API calls, naturally suited to async/await; single event loop manages both concurrent transactions and DDA, avoiding multi-threaded synchronization overhead |
 | Dependencies | Standard library + Anthropic SDK, no LangChain/CrewAI |
 
 ---

@@ -25,4 +25,5 @@ select = ["E", "F", "I", "N", "W", "UP"]
 quote-style = "double"
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["."]
+norecursedirs = [".venv", ".claude", "docs", "dda", "__pycache__"]

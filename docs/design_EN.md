@@ -284,14 +284,14 @@ Analogous to CockroachDB.
 Rollbacks the last transaction to appear in any resource's request queue — the one whose lock request triggered the cycle detection. Ties → highest transNum wins.
 Analogous to Percona/MariaDB "last-requester-first".
 
-> **Status**: Designed, pending implementation. Phase 1 initial run uses MinLocks + YoungestFirst; CycleTrigger added in a follow-up iteration.
+> **Status**: Implemented. `dda_basic.py` auto-runs all three strategies for comparison.
 
 #### LLMSelector (Phase 2 entry point)
 Interface reserved. Constructor takes `(client, fallback)`. Falls back to a fixed rule on API failure.
 
 ### 3.7 RollbackExecutor
 
-Sends `\kill <transNum>\n` over TCP to rookieDB. Reuses DDA's polling connection. Returns `bool`.
+Sends `\kill <transNum>\n` over TCP to rookieDB via an independent connection (one per kill). Returns `bool`.
 
 Error scenarios: connection lost → reconnect + retry; kill fails (transaction already completed — race) → log warning, next poll confirms.
 

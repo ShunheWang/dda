@@ -104,7 +104,6 @@ dda/
 ├── pyproject.toml            # Project config (dependencies, linting)
 ├── requirements.txt
 ├── LICENSE
-├── scenarios/                # YAML scenario files
 ├── .claude/                  # Claude Code config (skills, settings)
 ├── docs/
 │   ├── requirements.md       # Background, functional requirements, roadmap, acceptance criteria
