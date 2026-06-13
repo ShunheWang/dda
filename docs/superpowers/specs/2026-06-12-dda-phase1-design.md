@@ -13,16 +13,14 @@ graph TB
 
     subgraph loop["DDA 监控循环 (500ms)"]
         direction LR
-        pipeline["\alllocks → Parse → WFG → DFS → Select"]
-        conn["长连接复用<br/>TCP:18600"]
+        poll["\alllocks → Parse → WFG → DFS"]
         selector["VictimSelector<br/>Min Locks | Youngest | Cycle Trigger"]
         executor["RollbackExecutor<br/>\kill transNum"]
     end
 
     concurrent --> loop
-    pipeline --> conn
-    pipeline --> selector
-    selector --> executor
+    poll --> selector --> executor
+    executor -.->|"下一轮轮询"| poll
 ```
 
 **数据流**: YAML → 并发事务 → \alllocks → LockSnapshot → WFG(有向图) → DFS 找环 → Victim → \kill
@@ -55,46 +53,16 @@ transactions:
 
 ## 3. 组件
 
-### 3.1 PollingMonitor
-- 职责: 500ms 间隔通过长连接发送 `\alllocks`，接收原始文本响应
-- 输入: 无（定时触发）
-- 输出: 原始文本字符串
-- 连接: 启动时建立 TCP 长连接，所有 metacommand 复用
+> 组件详细设计见 [design.md](../../design.md) §3。此处仅列出阶段一的要点和差异。
 
-### 3.2 LockParser
-- 职责: 正则解析 `\alllocks` 原始文本 → LockSnapshot
-- 输入: `\alllocks` 响应字符串
-- 输出: `LockSnapshot` dataclass
-  - `transaction_locks: dict[int, list[LockInfo]]` — transNum → 持有的锁
-  - `resource_entries: dict[str, ResourceState]` — 资源名 → {holders: list, waiters: list}
-  - `transaction_times: dict[int, int]` — transNum → startTime
-
-### 3.3 WFGBuilder
-- 职责: LockSnapshot → Wait-for Graph（有向图）
-- 输入: LockSnapshot
-- 输出: 邻接表 `dict[int, set[int]]`，边 T_a → T_b 表示 T_a 等待 T_b 释放锁
-
-### 3.4 CycleDetector
-- 职责: DFS 在有向图中找环
-- 输入: WFG 邻接表
-- 输出: `Optional[list[int]]` — 环上事务列表，无环返回 None
-
-### 3.5 VictimSelector
-- 职责: 三种策略选定 victim
-- 输入: LockSnapshot + 环事务列表
-- 输出: `VictimResult` dataclass
-  - `victim: int` — 被选中的 transNum
-  - `strategy: str`
-  - `reason: str` — 自然语言理由
-- 三种策略:
-  - **Min Locks**: `transaction_locks` 中锁数最少的
-  - **Youngest First**: `transaction_times` 中 startTime 最大的
-  - **Cycle Trigger**: 环上在 `resource_entries` Queue 中最后出现的
-
-### 3.6 RollbackExecutor
-- 职责: 通过长连接发送 `\kill <transNum>`
-- 输入: victim transNum
-- 输出: 执行结果
+| 组件 | 设计参考 | 阶段一要点 |
+|------|---------|-----------|
+| **PollingMonitor** | design.md §3.8 | 500ms 固定间隔，长连接复用，`stop_event` 控制退出 |
+| **LockParser** | design.md §3.3 | 正则解析 `\alllocks`，输出 `LockSnapshot`（`held_locks` + `waiting` + `trans_times` + `raw_text`）|
+| **WFGBuilder** | design.md §3.4 | `LockSnapshot` → `WaitForGraph`（`nodes` + `edges`），精确锁冲突检查 |
+| **CycleDetector** | design.md §3.5 | DFS + 三色标记，返回 `list[Cycle]` |
+| **VictimSelector** | design.md §3.6 | 三种策略：MinLocks / YoungestFirst / CycleTrigger，策略模式可切换 |
+| **RollbackExecutor** | design.md §3.7 | 复用 DDA 连接发送 `\kill <transNum>` |
 
 ## 4. 主流程
 
@@ -158,4 +126,4 @@ dda/
 - 不做自适应轮询（500ms 固定，记录到深挖路线图）
 - 不做 LLM victim selection（阶段二）
 - 不做 DDA 抽象化（BaseDeadlockDetector 等，记录到深挖路线图）
-- 不写单元测试（项目没有测试框架，阶段一以实际运行为验证）
+- 不写端到端集成测试（项目没有测试框架，阶段一以实际运行为验证；组件级单元测试已有 `test_components.py`）

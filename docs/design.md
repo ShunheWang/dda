@@ -165,15 +165,6 @@ flowchart TB
     style slp fill:#94A3B8,stroke-width:0,color:#fff
 ```
 
-```
-str (\alllocks 文本)
-  → LockParser.parse() → LockSnapshot
-    → WFGBuilder.build() → WaitForGraph
-      → CycleDetector.detect() → list[Cycle]
-        → VictimSelector.select() → (transNum, reason)
-          → RollbackExecutor.kill() → bool
-```
-
 ### 3.2 数据结构
 
 #### 3.2.1 LockSnapshot
@@ -375,7 +366,7 @@ def detect(wfg):
 
 ### 3.6 VictimSelector（策略模式）
 
-**设计**：Strategy 模式——统一接口，多种可选实现。阶段一实现两个固定规则，阶段二加 LLM 实现，无需改调用方。
+**设计**：Strategy 模式——统一接口，多种可选实现。阶段一实现三种固定规则（MinLocks、YoungestFirst、CycleTrigger），阶段二加 LLM 实现，无需改调用方。
 
 ```python
 class VictimSelector(ABC):
@@ -438,7 +429,26 @@ select(cycle, snapshot):
 
 **平局**：startTime 相同时选 transNum 最大的（确定性）。
 
-#### 3.6.3 LLMSelector（阶段二接入点）
+#### 3.6.3 CycleTriggerSelector
+
+**规则**：回滚环上在资源等待队列中最后出现的那个事务——即触发本轮死锁检测的事务。
+
+```
+select(cycle, snapshot):
+    # 遍历环上每个事务，找到在各资源 waiting 队列中位置最靠后的
+    candidates = cycle.transactions
+    last_in_queue = max(candidates, key=lambda t: snapshot.get_queue_position(t))
+    reason = f"T{last_in_queue} is last in request queue — cycle trigger"
+    return (last_in_queue, reason)
+```
+
+**对应思路**：Percona/MariaDB 的"最后请求者优先"——打破最新形成的等待关系，与锁等待的自然时序一致。
+
+**平局**：多个事务在队列中处于相同位置时，选 transNum 最大的（确定性）。
+
+> **状态**：已设计，待实现。阶段一初始实现先跑 MinLocks 和 YoungestFirst，CycleTrigger 在后续迭代中接入。
+
+#### 3.6.4 LLMSelector（阶段二接入点）
 
 阶段二实现，接口预留：
 
@@ -499,7 +509,7 @@ class PollingMonitor:
         self.host = host
         self.port = port
         self.interval = interval
-        self.selector = selector or MinLocksSelector()
+        self.selector = selector or MinLocksSelector()  # 阶段一跑三种策略，选哪个由调用方注入
         self.parser = LockParser()
         self.builder = WFGBuilder()
         self.detector = CycleDetector()
@@ -551,14 +561,14 @@ class PollingMonitor:
 
 ```python
 async def main():
-    monitor = PollingMonitor(selector=MinLocksSelector())
-    stop_event = asyncio.Event()
-
-    # 并发执行：DDA 监控 + 并发事务
-    async with asyncio.TaskGroup() as tg:
-        tg.create_task(monitor.run(stop_event))
-        tg.create_task(run_scenario())         # scenarios.py 中的场景
-        # 场景跑完后设 stop_event，监控退出
+    strategies = [MinLocksSelector(), YoungestFirstSelector(), CycleTriggerSelector()]
+    for selector in strategies:
+        stop_event = asyncio.Event()
+        monitor = PollingMonitor(selector=selector)
+        async with asyncio.TaskGroup() as tg:
+            tg.create_task(monitor.run(stop_event))
+            tg.create_task(run_scenario())   # scenarios.py 中的场景
+        # 对比三种策略的 victim + reason
 ```
 
 **与并发事务的关系**：DDA 和并发事务共享同一个 asyncio 事件循环。并发事务在独立 TCP 连接上执行 SQL，DDA 在自己的连接上轮询和杀事务。当并发事务因锁冲突阻塞时，asyncio 的 await 挂起不占 CPU，事件循环继续调度 DDA 任务。DDA 不需要抢占或中断——它的轮询逻辑和事务的 SQL 执行天然并发。

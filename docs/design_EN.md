@@ -280,6 +280,12 @@ Analogous to MySQL (InnoDB).
 Rollbacks the transaction with latest startTime. Ties → highest transNum wins.
 Analogous to CockroachDB.
 
+#### CycleTriggerSelector (Phase 1)
+Rollbacks the last transaction to appear in any resource's request queue — the one whose lock request triggered the cycle detection. Ties → highest transNum wins.
+Analogous to Percona/MariaDB "last-requester-first".
+
+> **Status**: Designed, pending implementation. Phase 1 initial run uses MinLocks + YoungestFirst; CycleTrigger added in a follow-up iteration.
+
 #### LLMSelector (Phase 2 entry point)
 Interface reserved. Constructor takes `(client, fallback)`. Falls back to a fixed rule on API failure.
 
