@@ -4,11 +4,13 @@
 """
 
 import pytest
-from dda_basic import (
-    LockParser, WFGBuilder, CycleDetector,
-    MinLocksSelector, YoungestFirstSelector,
-    LockSnapshot, WaitForGraph, Cycle, HeldLock, WaitingRequest,
+from dda.models import (
+    HeldLock, LockSnapshot, WaitingRequest, WaitForGraph, Cycle,
 )
+from dda.parser import LockParser
+from dda.wfg import WFGBuilder
+from dda.detector import CycleDetector
+from dda.selector import MinLocksSelector, YoungestFirstSelector
 
 # =============================================================================
 # Fixtures

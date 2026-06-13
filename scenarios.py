@@ -15,114 +15,7 @@ DDA 死锁场景编排
 import asyncio
 from typing import Optional
 
-
-# =============================================================================
-# TCP 通信辅助
-# =============================================================================
-
-
-async def _connect(host: str, port: int) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
-    """连接到 rookieDB，跳过欢迎 banner + 初始 '=> ' 提示符。"""
-    reader, writer = await asyncio.open_connection(host, port)
-    # 跳过 banner 行
-    for _ in range(10):
-        line = await _read_line(reader, timeout=0.2)
-        if line is None:
-            break
-    # rookiedb '=> ' 提示符无换行，readline 读不到，用 read() 清掉
-    try:
-        await asyncio.wait_for(reader.read(256), timeout=0.2)
-    except asyncio.TimeoutError:
-        pass
-    return reader, writer
-
-
-async def _read_line(reader: asyncio.StreamReader, timeout: float) -> Optional[str]:
-    """读一行，超时返回 None。"""
-    try:
-        line = await asyncio.wait_for(reader.readline(), timeout=timeout)
-        return line.decode().strip() if line else None
-    except asyncio.TimeoutError:
-        return None
-
-
-def _is_error(resp: str) -> bool:
-    """判断 rookiedb 响应是否为错误（事务被 kill、SQL 失败等）。"""
-    lower = resp.lower()
-    return any(kw in lower for kw in [
-        'error', 'rollback', 'exception', 'cannot commit',
-        'not in running state', 'failed',
-    ])
-
-
-async def _execute(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
-                   sql: str, timeout: float = 10.0) -> str:
-    """发送 SQL，读取并返回响应。
-
-    rookiedb 的 PrintStream(autoFlush=true) 会在每次 println 时
-    flush。但 '=> ' 提示符无换行，不会独立 flush——它会跟下一条
-    命令的输出一起 flush，导致响应行开头有 '=> ' 前缀。
-    """
-    if not sql.rstrip().endswith(';'):
-        sql = sql.rstrip() + ';'
-    writer.write((sql + '\n').encode())
-    await writer.drain()
-
-    # 读第一行（含前置的 => 提示符 + 实际输出）
-    first_line = await _read_line(reader, timeout=timeout)
-    if first_line is None:
-        return ''
-
-    # 去掉开头的 '=> ' 前缀（可能有多个堆积）
-    cleaned = first_line.strip()
-    while cleaned.startswith('=> '):
-        cleaned = cleaned[3:]
-    cleaned = cleaned.strip()
-
-    # 读后续行（错误 / 堆栈跟踪可能是多行的）
-    # 用短超时——正常情况没有后续行，提示符无换行会触发超时
-    more_lines: list[str] = []
-    while True:
-        line = await _read_line(reader, timeout=0.3)
-        if line is None or line.strip() == '=>':
-            break
-        more_lines.append(line)
-
-    if more_lines:
-        return cleaned + '\n' + '\n'.join(more_lines)
-    return cleaned
-
-
-async def _setup_database(host: str, port: int) -> bool:
-    """创建测试表并插入初始数据。"""
-    try:
-        reader, writer = await _connect(host, port)
-
-        # 创建表（用 INT 而非 VARCHAR——rookieDB 对字符串字面量 INSERT 有限制）
-        for sql in [
-            'CREATE TABLE dda_a (id INT, val INT)',
-            'CREATE TABLE dda_b (id INT, val INT)',
-        ]:
-            resp = await _execute(reader, writer, sql)
-            # "SUCCESS" 或表已存在则报错，都继续
-            if 'error' in resp.lower() or 'already exists' in resp.lower():
-                print(f"  [Setup] {sql} → {resp}")
-
-        # 插入数据
-        for sql in [
-            "INSERT INTO dda_a VALUES (1, 100)",
-            "INSERT INTO dda_b VALUES (1, 200)",
-        ]:
-            resp = await _execute(reader, writer, sql)
-            if 'error' in resp.lower():
-                print(f"  [Setup] {sql} → {resp}")
-
-        writer.close()
-        await writer.wait_closed()
-        return True
-    except Exception as e:
-        print(f"  [Setup] 失败: {e}")
-        return False
+from dda.connection import execute_sql, is_error, open_connection
 
 
 # =============================================================================
@@ -155,37 +48,35 @@ async def _transaction(
         "killed": False,
         "error": None,
     }
-    reader: Optional[asyncio.StreamReader] = None
     writer: Optional[asyncio.StreamWriter] = None
 
     try:
-        reader, writer = await _connect(host, port)
+        reader, writer = await open_connection(host, port)
 
         # BEGIN
-        resp = await _execute(reader, writer, 'BEGIN')
+        resp = await execute_sql(reader, writer, 'BEGIN')
         print(f"  [{label}] BEGIN → {resp}")
 
         # 第一步 UPDATE（获取第一个锁）
-        resp = await _execute(reader, writer, first_update)
+        resp = await execute_sql(reader, writer, first_update)
         print(f"  [{label}] {first_update} → {resp}")
 
         # 暂停，让另一个事务也获取它的第一个锁
         await asyncio.sleep(pause_before_second)
 
         # 第二步 UPDATE（可能阻塞，等待另一个事务释放锁）
-        # 如果 DDA 在等待期间 kill 了本事务，readline 会返回错误
         print(f"  [{label}] {second_update} → 等待锁...")
-        resp = await _execute(reader, writer, second_update, timeout=30.0)
+        resp = await execute_sql(reader, writer, second_update, timeout=30.0)
         print(f"  [{label}] {second_update} → {resp}")
 
         # 成功获取锁 → COMMIT
-        if _is_error(resp):
+        if is_error(resp):
             result["killed"] = True
             result["error"] = resp
         else:
-            resp = await _execute(reader, writer, 'COMMIT')
+            resp = await execute_sql(reader, writer, 'COMMIT')
             print(f"  [{label}] COMMIT → {resp}")
-            if _is_error(resp):
+            if is_error(resp):
                 result["killed"] = True
                 result["error"] = resp
             else:
@@ -208,6 +99,35 @@ async def _transaction(
     return result
 
 
+async def _setup_database(host: str, port: int) -> bool:
+    """创建测试表并插入初始数据。"""
+    try:
+        reader, writer = await open_connection(host, port)
+
+        for sql in [
+            'CREATE TABLE dda_a (id INT, val INT)',
+            'CREATE TABLE dda_b (id INT, val INT)',
+        ]:
+            resp = await execute_sql(reader, writer, sql)
+            if 'error' in resp.lower() or 'already exists' in resp.lower():
+                print(f"  [Setup] {sql} → {resp}")
+
+        for sql in [
+            "INSERT INTO dda_a VALUES (1, 100)",
+            "INSERT INTO dda_b VALUES (1, 200)",
+        ]:
+            resp = await execute_sql(reader, writer, sql)
+            if 'error' in resp.lower():
+                print(f"  [Setup] {sql} → {resp}")
+
+        writer.close()
+        await writer.wait_closed()
+        return True
+    except Exception as e:
+        print(f"  [Setup] 失败: {e}")
+        return False
+
+
 # =============================================================================
 # 场景定义
 # =============================================================================
@@ -225,7 +145,6 @@ async def two_table_deadlock(host: str = "localhost", port: int = 18600) -> dict
     print("场景: two_table_deadlock")
     print("=" * 60)
 
-    # 1. 建表
     print("\n[Setup] 创建测试表...")
     ok = await _setup_database(host, port)
     if not ok:
@@ -233,7 +152,6 @@ async def two_table_deadlock(host: str = "localhost", port: int = 18600) -> dict
 
     print("[Setup] 完成\n")
 
-    # 2. 并发执行两个事务
     t1_first = "UPDATE dda_a SET val = 10 WHERE id = 1"
     t1_second = "UPDATE dda_b SET val = 11 WHERE id = 1"
 
@@ -245,7 +163,6 @@ async def two_table_deadlock(host: str = "localhost", port: int = 18600) -> dict
         _transaction(host, port, 'T2', t2_first, t2_second, pause_before_second=0.3),
     )
 
-    # 3. 汇总
     print()
     print(f"T1: committed={t1['committed']}, killed={t1['killed']}, error={t1.get('error')}")
     print(f"T2: committed={t2['committed']}, killed={t2['killed']}, error={t2.get('error')}")

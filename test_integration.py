@@ -17,9 +17,8 @@ import time
 from pathlib import Path
 
 import pytest
-from dda_basic import (
-    PollingMonitor, MinLocksSelector, YoungestFirstSelector
-)
+from dda.monitor import PollingMonitor
+from dda.selector import MinLocksSelector, YoungestFirstSelector
 
 ROOKIEDB_HOME = Path(os.environ.get(
     'ROOKIEDB_HOME',
