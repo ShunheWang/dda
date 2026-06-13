@@ -78,32 +78,43 @@ pip install -r requirements.txt
 cp .env.example .env
 # 编辑 .env，填入 ANTHROPIC_API_KEY
 
-# 4. 运行
+# 4. 运行（自动对比三种策略）
 python dda_basic.py
+python dda_basic.py -v         # 详细模式
 ```
 
 ## 文件结构
 
 ```
 dda/
-├── dda_basic.py          # 主程序
-├── scenarios.py          # 死锁场景编排（并发事务定义）
-├── test_components.py    # 组件级单元测试
-├── test_integration.py   # 集成测试（rookieDB 全链路）
-├── pyproject.toml        # 项目配置（依赖、linting）
+├── dda_basic.py              # 主入口（CLI 参数、三种策略对比）
+├── scenarios.py              # 死锁场景编排（并发事务定义）
+├── test_components.py        # 组件级单元测试
+├── test_integration.py       # 集成测试（rookieDB 全链路）
+├── dda/                      # 核心库
+│   ├── __init__.py
+│   ├── models.py             # 数据结构（HeldLock, LockSnapshot, WFG, Cycle）
+│   ├── connection.py         # TCP 通信辅助（统一连接、读取、SQL 执行）
+│   ├── parser.py             # \alllocks 输出解析
+│   ├── wfg.py                # Wait-for Graph 构造 + 锁冲突矩阵
+│   ├── detector.py           # DFS 三色标记找环
+│   ├── selector.py           # Victim 选择策略（MinLocks / Youngest / CycleTrigger / LLM）
+│   ├── executor.py           # \kill 回滚执行
+│   └── monitor.py            # PollingMonitor 主循环
+├── pyproject.toml            # 项目配置（依赖、linting）
 ├── requirements.txt
 ├── LICENSE
-├── scenarios/            # YAML 场景文件
-├── .claude/              # Claude Code 配置（skills、settings）
+├── scenarios/                # YAML 场景文件
+├── .claude/                  # Claude Code 配置（skills、settings）
 ├── docs/
-│   ├── requirements.md   # 背景、功能需求、实施路线、验收标准
-│   ├── requirements_EN.md # English version ↑
-│   ├── design.md         # 架构、数据流、组件接口、LLM prompt 设计
-│   ├── design_EN.md       # English version ↑
-│   ├── decisions.md      # 关键设计决策的博弈过程与结论
-│   └── decisions_EN.md    # English version ↑
-├── README.md             # 中文
-└── README_EN.md          # English
+│   ├── requirements.md       # 背景、功能需求、实施路线、验收标准
+│   ├── requirements_EN.md    # English version ↑
+│   ├── design.md             # 架构、数据流、组件接口、LLM prompt 设计
+│   ├── design_EN.md          # English version ↑
+│   ├── decisions.md          # 关键设计决策的博弈过程与结论
+│   └── decisions_EN.md       # English version ↑
+├── README.md                 # 中文
+└── README_EN.md              # English
 ```
 
 ## 相关项目

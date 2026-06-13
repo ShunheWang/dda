@@ -111,10 +111,21 @@ flowchart TB
 
 ```
 dda/
-├── dda_basic.py              # 主入口
-├── scenarios/
-│   └── deadlock_2tx_basic.yaml   # 第一个死锁场景
-├── requirements.txt          # +pyyaml
+├── dda_basic.py              # 主入口（CLI 参数、三种策略对比）
+├── scenarios.py              # 死锁场景编排
+├── test_components.py        # 组件级单元测试
+├── test_integration.py       # 集成测试
+├── dda/                      # 核心库
+│   ├── models.py             # 数据结构
+│   ├── connection.py         # TCP 通信
+│   ├── parser.py             # \alllocks 解析
+│   ├── wfg.py                # Wait-for Graph 构造
+│   ├── detector.py           # DFS 找环
+│   ├── selector.py           # Victim 选择策略
+│   ├── executor.py           # \kill 执行
+│   └── monitor.py            # 主循环
+├── requirements.txt
+├── scenarios/                # YAML 场景文件
 └── docs/
     ├── design.md             # 系统设计（含 Mermaid 配图）
     └── ...

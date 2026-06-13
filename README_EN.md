@@ -78,32 +78,43 @@ pip install -r requirements.txt
 cp .env.example .env
 # Edit .env, fill in ANTHROPIC_API_KEY
 
-# 4. Run
+# 4. Run (auto-compares three strategies)
 python dda_basic.py
+python dda_basic.py -v         # Verbose mode
 ```
 
 ## File Structure
 
 ```
 dda/
-├── dda_basic.py          # Main program
-├── scenarios.py          # Deadlock scenario orchestration (concurrent transactions)
-├── test_components.py    # Component-level unit tests
-├── test_integration.py   # Integration tests (full pipeline with rookieDB)
-├── pyproject.toml        # Project config (dependencies, linting)
+├── dda_basic.py              # Main entry (CLI args, three-strategy comparison)
+├── scenarios.py              # Deadlock scenario orchestration (concurrent transactions)
+├── test_components.py        # Component-level unit tests
+├── test_integration.py       # Integration tests (full pipeline with rookieDB)
+├── dda/                      # Core library
+│   ├── __init__.py
+│   ├── models.py             # Data structures (HeldLock, LockSnapshot, WFG, Cycle)
+│   ├── connection.py         # TCP communication helpers (connect, read, SQL exec)
+│   ├── parser.py             # \alllocks output parser
+│   ├── wfg.py                # Wait-for Graph builder + lock conflict matrix
+│   ├── detector.py           # DFS 3-color cycle detection
+│   ├── selector.py           # Victim selection strategies (MinLocks / Youngest / CycleTrigger / LLM)
+│   ├── executor.py           # \kill rollback execution
+│   └── monitor.py            # PollingMonitor main loop
+├── pyproject.toml            # Project config (dependencies, linting)
 ├── requirements.txt
 ├── LICENSE
-├── scenarios/            # YAML scenario files
-├── .claude/              # Claude Code config (skills, settings)
+├── scenarios/                # YAML scenario files
+├── .claude/                  # Claude Code config (skills, settings)
 ├── docs/
-│   ├── requirements.md   # Background, functional requirements, roadmap, acceptance criteria
-│   ├── requirements_EN.md # English version ↑
-│   ├── design.md         # Architecture, data flow, component interfaces, LLM prompt design
-│   ├── design_EN.md       # English version ↑
-│   ├── decisions.md      # Key design decisions — tradeoffs and conclusions
-│   └── decisions_EN.md    # English version ↑
-├── README.md             # Chinese
-└── README_EN.md          # English
+│   ├── requirements.md       # Background, functional requirements, roadmap, acceptance criteria
+│   ├── requirements_EN.md    # English version ↑
+│   ├── design.md             # Architecture, data flow, component interfaces, LLM prompt design
+│   ├── design_EN.md          # English version ↑
+│   ├── decisions.md          # Key design decisions — tradeoffs and conclusions
+│   └── decisions_EN.md       # English version ↑
+├── README.md                 # Chinese
+└── README_EN.md              # English
 ```
 
 ## Related Projects
