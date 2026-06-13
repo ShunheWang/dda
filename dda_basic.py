@@ -483,17 +483,31 @@ class PollingMonitor:
 
             writer.close()
             await writer.wait_closed()
-            return '\n'.join(lines)
+            raw_text = '\n'.join(lines)
+            # rookiedb 的 '=> ' 提示符无换行，可能跟第一条输出
+            # 一起 flush。去掉第一行可能残留的 '=> ' 前缀。
+            if raw_text.startswith('=> '):
+                raw_text = raw_text[3:]
+            return raw_text
         except Exception as e:
             print(f"  [Monitor] 轮询失败: {e}")
             return None
 
     async def _flush(self, reader: asyncio.StreamReader) -> None:
-        """读取并丢弃缓冲区中的残留数据。"""
+        """读取并丢弃缓冲区中的残留数据（banner + 初始 => 提示符）。
+
+        rookiedb 的 '=> ' 提示符没有换行，readline 无法消费。
+        最后用 read() 清掉残留的 '=> ' 字节。
+        """
         for _ in range(10):
             line = await self._read_line(reader, timeout=0.15)
             if line is None:
                 break
+        # 消耗残留的 '=> ' 提示符（无换行，readline 读不到）
+        try:
+            await asyncio.wait_for(reader.read(256), timeout=0.15)
+        except asyncio.TimeoutError:
+            pass
 
     async def _read_line(
         self, reader: asyncio.StreamReader, timeout: float
