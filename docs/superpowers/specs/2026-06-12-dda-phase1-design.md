@@ -6,30 +6,7 @@
 
 ## 1. 架构
 
-```
-main() 启动 → 加载场景 YAML → 并发事务 + DDA 监控
-                                    │
-         ┌──────────────────────────┘
-         ▼
-┌──────────────────────────────────────────┐
-│            DDA 监控循环 (500ms)            │
-│                                          │
-│  \alllocks → Parse → WFG → DFS → Select  │
-│       │                                │
-│       ▼                                ▼
-│  ┌──────────┐                  ┌──────────────┐
-│  │ 长连接复用 │                  │ VictimSelector│
-│  │ TCP:18600 │                  │  Min Locks    │
-│  └──────────┘                  │  Youngest     │
-│                                │  Cycle Trigger│
-│                                └──────┬───────┘
-│                                       │
-│                                ┌──────▼───────┐
-│                                │ RollbackExec  │
-│                                │ \kill transNum │
-│                                └──────────────┘
-└──────────────────────────────────────────┘
-```
+> 配图：[dda-arch.drawio](../../../dda-arch.drawio) | 轮询循环：[dda-polling-flow.drawio](../../../dda-polling-flow.drawio)
 
 **数据流**: YAML → 并发事务 → \alllocks → LockSnapshot → WFG(有向图) → DFS 找环 → Victim → \kill
 
@@ -104,7 +81,8 @@ transactions:
 
 ## 4. 主流程
 
-```
+> 配图：[dda-phase1-flow.drawio](../../../dda-phase1-flow.drawio)
+
 1. 加载 YAML 场景
 2. 建立 TCP 长连接 (localhost:18600)
 3. 主连接执行 setup SQL
@@ -121,7 +99,6 @@ transactions:
    - 无 -v: 对比表格
    - -v: 每个策略的详细分析过程 + 表格
 7. 关闭连接
-```
 
 ## 5. 验收标准
 
@@ -137,12 +114,15 @@ transactions:
 
 ```
 dda/
-├── dda_basic.py          # 主入口
+├── dda_basic.py              # 主入口
+├── dda-arch.drawio           # 系统架构图
+├── dda-polling-flow.drawio   # 轮询循环流程图
+├── dda-phase1-flow.drawio    # 阶段一主流程图
 ├── scenarios/
 │   └── deadlock_2tx_basic.yaml   # 第一个死锁场景
-├── requirements.txt      # +pyyaml
+├── requirements.txt          # +pyyaml
 └── docs/
-    ├── design.md         # 已有，Section 1-4
+    ├── design.md             # 已有，Section 1-4
     └── ...
 ```
 

@@ -9,33 +9,15 @@
 
 ## 1. 系统架构
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    DDA (Python + asyncio)                │
-│                                                         │
-│  ┌─────────────┐  ┌──────────┐  ┌───────────────┐      │
-│  │ 并发事务执行  │  │ DDA 监控  │  │  LLM Victim   │      │
-│  │  (纯代码)    │  │  Task    │  │   Selector    │      │
-│  │             │  │           │  │               │      │
-│  │ T1: socket1 │  │ 轮询锁状态 │  │ Anthropic SDK │      │
-│  │ T2: socket2 │  │ 构造WFG   │  │               │      │
-│  │             │  │ DFS找环   │  │               │      │
-│  │ asyncio     │  │ 选victim  │  │               │      │
-│  │ gather()    │  │           │  │               │      │
-│  └──────┬──────┘  └─────┬────┘  └───────┬───────┘      │
-│         │               │               │               │
-└─────────┼───────────────┼───────────────┼───────────────┘
-          │ TCP socket    │               │
-          ▼               ▼               │
-┌─────────────────────────────────────────────────────────┐
-│               rookieDB Server (Java)                     │
-│                                                         │
-│  \alllocks  → 锁状态查询（已有）                          │
-│  \kill      → 跨连接回滚（新增）                          │
-│                                                         │
-│  ARIESRecoveryManager + LockManager + TransactionImpl   │
-└─────────────────────────────────────────────────────────┘
-```
+> 配图：[dda-arch.drawio](../../dda-arch.drawio)
+
+DDA (Python + asyncio) 通过独立 TCP 连接监控 rookieDB Server (Java)，包含三个核心模块：
+
+- **并发事务执行**（纯代码）：T1/T2 各占一个 socket，asyncio.gather() 并发
+- **DDA 监控 Task**（纯代码）：轮询锁状态 → 构造 WFG → DFS 找环 → 选 victim
+- **LLM Victim Selector**：Anthropic SDK，语义判断 + 上下文分析
+
+rookieDB 侧提供两个 metacommand：`\alllocks`（锁状态查询，已有）和 `\kill`（跨连接回滚，新增）。
 
 **关键边界**：
 - LLM 只在 victim selection 一个环节调用
@@ -144,44 +126,9 @@ DDA 调用的入口。执行顺序：
 
 ### 3.1 整体数据流
 
-```
-┌───────────────────────────────────────────────────────────┐
-│                    PollingMonitor (asyncio Task)           │
-│                                                           │
-│  ┌──────────┐    ┌──────────┐    ┌──────────┐            │
-│  │ TCP 连接  │    │ TCP 连接  │    │ TCP 连接  │            │
-│  │ (T1 SQL) │    │ (T2 SQL) │    │ (\alllocks│            │
-│  │          │    │          │    │  \kill)   │            │
-│  └──────────┘    └──────────┘    └─────┬─────┘            │
-│                                        │                  │
-│    并发事务 (scenarios.py)              │ DDA 轮询连接     │
-│                                        ▼                  │
-│  ┌──────────────────────────────────────────────────┐     │
-│  │  loop:                                          │     │
-│  │    1. send("\alllocks")  ───────────┐           │     │
-│  │    2. recv() → raw_text             │           │     │
-│  │    3. LockParser.parse(raw_text)    │ 无环时    │     │
-│  │       → LockSnapshot               │ sleep     │     │
-│  │    4. WFGBuilder.build(snapshot)    │ 500ms     │     │
-│  │       → WaitForGraph               │ 回到 1    │     │
-│  │    5. CycleDetector.detect(wfg)    │           │     │
-│  │       → [cycle]    ◄───────────────┘           │     │
-│  │    6. if cycle:                               │     │
-│  │       VictimSelector.select(cycle, snapshot)   │     │
-│  │       → (victim, reason)                      │     │
-│  │    7. RollbackExecutor.kill(victim)            │     │
-│  │       → result                                │     │
-│  │    8. sleep(500ms) → 回到 1                    │     │
-│  └──────────────────────────────────────────────────┘     │
-└───────────────────────────────────────────────────────────┘
-         │                    │                    │
-         ▼ TCP                ▼ TCP                ▼ TCP
-┌──────────────────────────────────────────────────────────┐
-│                  rookieDB Server (:18600)                 │
-└──────────────────────────────────────────────────────────┘
-```
+> 配图：[dda-polling-flow.drawio](../../dda-polling-flow.drawio)
 
-**数据流类型签名**：
+PollingMonitor 是一个 asyncio Task，以 500ms 间隔循环执行：
 
 ```
 str (\alllocks 文本)
@@ -654,9 +601,4 @@ async def two_transaction_deadlock(host: str, port: int) -> dict:
 
 ## 4. 实施顺序
 
-```
-rookieDB 能力补全（本文第 2 节）
-  → DDA 端设计（第 3 节）
-    → 阶段一：传统算法 + 对比基线
-      → 阶段二：LLM Victim Selection
-```
+rookieDB 能力补全（本文第 2 节）→ DDA 端设计（第 3 节）→ 阶段一：传统算法 + 对比基线 → 阶段二：LLM Victim Selection
