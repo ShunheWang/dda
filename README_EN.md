@@ -24,20 +24,32 @@ Every major database uses hardcoded rules for victim selection:
 
 ## Architecture
 
-```
-Concurrent Transactions (pure asyncio code)
-     │
-     ├── T1: BEGIN → UPDATE Students → UPDATE Courses → blocked
-     ├── T2: BEGIN → UPDATE Courses → UPDATE Students → blocked
-     │
-     └── DDA (asyncio Task, independent socket connection)
-           ├── Poll LockManager (\alllocks)
-           ├── Build Wait-for Graph
-           ├── DFS Cycle Detection
-           ├── Victim Selection
-           │   ├── Phase 1: Fixed Rules (Min Locks / Youngest / Cycle Trigger)
-           │   └── Phase 2: LLM Decision (+ fallback)
-           └── Independent Connection ROLLBACK
+```mermaid
+graph TB
+    transactions["Concurrent Transactions<br/>(pure asyncio code)"]
+
+    subgraph dda["DDA (asyncio Task, independent socket)"]
+        direction TB
+        poll["Poll LockManager (\alllocks)"]
+        wfg["Build Wait-for Graph"]
+        dfs["DFS Cycle Detection"]
+        victim["Victim Selection"]
+        rollback["Independent Connection ROLLBACK"]
+    end
+
+    t1["T1: BEGIN → UPDATE Students<br/>→ UPDATE Courses → blocked"]
+    t2["T2: BEGIN → UPDATE Courses<br/>→ UPDATE Students → blocked"]
+
+    subgraph strategies["Victim Selection Strategies"]
+        phase1["Phase 1: Fixed Rules<br/>Min Locks / Youngest / Cycle Trigger"]
+        phase2["Phase 2: LLM Decision<br/>(+ rule fallback)"]
+    end
+
+    transactions --> t1
+    transactions --> t2
+    transactions --> dda
+    poll --> wfg --> dfs --> victim --> rollback
+    victim --- strategies
 ```
 
 DDA uses a **Sidecar architecture**: it runs as an independent process outside the database kernel, polling lock state externally. This means it is not tied to any specific database — in the deep-dive roadmap, PostgreSQL support only requires swapping the data source from `\alllocks` to `pg_locks` + `pg_stat_activity`, while all other logic (graph construction, cycle detection, victim selection) is fully reusable.
@@ -75,9 +87,14 @@ python dda_basic.py
 ```
 dda/
 ├── dda_basic.py          # Main program
+├── scenarios.py          # Deadlock scenario orchestration (concurrent transactions)
+├── test_components.py    # Component-level unit tests
+├── test_integration.py   # Integration tests (full pipeline with rookieDB)
 ├── pyproject.toml        # Project config (dependencies, linting)
 ├── requirements.txt
 ├── LICENSE
+├── scenarios/            # YAML scenario files
+├── .claude/              # Claude Code config (skills, settings)
 ├── docs/
 │   ├── requirements.md   # Background, functional requirements, roadmap, acceptance criteria
 │   ├── requirements_EN.md # English version ↑
