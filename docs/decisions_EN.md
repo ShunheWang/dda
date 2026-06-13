@@ -101,18 +101,30 @@ LLM calls can fail and need a fallback — LLM as primary decision-maker + rule 
 
 ## DDA Final Architecture
 
-```
-Concurrent Transactions (pure asyncio code)
-     │
-     ├── T1: BEGIN → UPDATE Students → UPDATE Courses → blocked
-     ├── T2: BEGIN → UPDATE Courses → UPDATE Students → blocked
-     │
-     └── DDA (asyncio Task, independent socket connection)
-           ├── Poll LockManager (\alllocks)
-           ├── Build Wait-for Graph
-           ├── DFS Cycle Detection
-           ├── Victim Selection
-           │   ├── Phase 1: Fixed Rules (Min Locks / Youngest / Cycle Trigger)
-           │   └── Phase 2: LLM Decision (+ fallback)
-           └── Independent Connection ROLLBACK
+```mermaid
+graph TB
+    transactions["Concurrent Transactions<br/>(pure asyncio code)"]
+
+    subgraph dda["DDA (asyncio Task, independent socket)"]
+        direction TB
+        poll["Poll LockManager (\alllocks)"]
+        wfg["Build Wait-for Graph"]
+        dfs["DFS Cycle Detection"]
+        victim["Victim Selection"]
+        rollback["Independent Connection ROLLBACK"]
+    end
+
+    t1["T1: BEGIN → UPDATE Students<br/>→ UPDATE Courses → blocked"]
+    t2["T2: BEGIN → UPDATE Courses<br/>→ UPDATE Students → blocked"]
+
+    subgraph strategies["Victim Selection Strategies"]
+        phase1["Phase 1: Fixed Rules<br/>Min Locks / Youngest / Cycle Trigger"]
+        phase2["Phase 2: LLM Decision<br/>(+ rule fallback)"]
+    end
+
+    transactions --> t1
+    transactions --> t2
+    transactions --> dda
+    poll --> wfg --> dfs --> victim --> rollback
+    victim --- strategies
 ```

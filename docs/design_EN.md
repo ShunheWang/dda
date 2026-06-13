@@ -9,39 +9,31 @@
 
 ## 1. System Architecture
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    DDA (Python + asyncio)                │
-│                                                         │
-│  ┌─────────────┐  ┌──────────┐  ┌───────────────┐      │
-│  │ Concurrent   │  │ DDA      │  │  LLM Victim   │      │
-│  │ Transactions │  │ Monitor  │  │   Selector    │      │
-│  │  (pure code) │  │  Task    │  │               │      │
-│  │             │  │           │  │ Anthropic SDK │      │
-│  │ T1: socket1 │  │ Poll lock │  │               │      │
-│  │ T2: socket2 │  │ state     │  │               │      │
-│  │             │  │ Build WFG │  │               │      │
-│  │ asyncio     │  │ DFS cycle │  │               │      │
-│  │ gather()    │  │ detection │  │               │      │
-│  └──────┬──────┘  └─────┬────┘  └───────┬───────┘      │
-│         │               │               │               │
-└─────────┼───────────────┼───────────────┼───────────────┘
-          │ TCP socket    │               │
-          ▼               ▼               │
-┌─────────────────────────────────────────────────────────┐
-│               rookieDB Server (Java)                     │
-│                                                         │
-│  \alllocks  → Lock state query (existing)               │
-│  \kill      → Cross-connection rollback (new)            │
-│                                                         │
-│  ARIESRecoveryManager + LockManager + TransactionImpl   │
-└─────────────────────────────────────────────────────────┘
+```mermaid
+graph TB
+    subgraph DDA["DDA (Python + asyncio)"]
+        direction LR
+        tx["Concurrent Transactions<br/>T1: socket1 | T2: socket2<br/>asyncio.gather()"]
+        monitor["DDA Monitor Task<br/>Poll lock state | Build WFG<br/>DFS cycle detection | Pick victim"]
+        llm["LLM Victim Selector<br/>Anthropic SDK<br/>Semantic judgment + context analysis"]
+    end
+
+    subgraph rdb["rookieDB Server (Java)"]
+        alllocks["\alllocks Lock state query (existing)"]
+        kill["\kill Cross-connection rollback (new)"]
+        kernel["ARIESRecoveryManager<br/>+ LockManager<br/>+ TransactionImpl"]
+    end
+
+    tx -.->|"TCP socket (SQL)"| rdb
+    monitor -->|"\alllocks polling"| alllocks
+    monitor -->|"deadlock cycle + context"| llm
+    llm -->|"\kill victim"| kill
 ```
 
-**Key boundaries:**
-- LLM is only invoked for victim selection
-- All other steps (SQL execution, lock state parsing, WFG construction, DFS cycle detection, ROLLBACK execution) are pure code
-- DDA runs via an independent TCP socket connection, not embedded in the rookieDB kernel
+> **Key boundaries:**
+> - LLM is only invoked for victim selection
+> - All other steps (SQL execution, lock state parsing, WFG construction, DFS cycle detection, ROLLBACK execution) are pure code
+> - DDA runs via an independent TCP socket connection, not embedded in the rookieDB kernel
 
 ---
 
@@ -143,18 +135,33 @@ New metacommand: `\kill <transNum>`. Parses and calls `db.rollbackTransaction(tr
 
 ### 3.1 Overall Data Flow
 
-```
-str (\alllocks text)
-  → LockParser.parse() → LockSnapshot
-    → WFGBuilder.build() → WaitForGraph
-      → CycleDetector.detect() → list[Cycle]
-        → VictimSelector.select() → (transNum, reason)
-          → RollbackExecutor.kill() → bool
+```mermaid
+flowchart TB
+    poll["1. Poll lock state<br/>send(\alllocks) → recv()<br/>→ raw_text"]
+    parse["2. Parse lock state<br/>LockParser.parse(raw_text)<br/>→ LockSnapshot"]
+    wfg["3. Build Wait-for Graph<br/>WFGBuilder.build(snapshot)<br/>→ WaitForGraph"]
+    dfs["4. Detect deadlock cycles<br/>CycleDetector.detect(wfg)<br/>DFS + 3-color marking → [cycle]"]
+    decision{"Deadlock?"}
+    select["5. Select Victim<br/>VictimSelector.select(cycle, snapshot)<br/>→ (victim, reason)"]
+    kill["6. Execute Rollback<br/>RollbackExecutor.kill(victim)<br/>send(\kill transNum) → result"]
+    slp["sleep(500ms)<br/>wait next cycle"]
+
+    poll --> parse --> wfg --> dfs --> decision
+    decision -->|"none"| slp
+    decision -->|"found"| select
+    select --> kill --> slp --> poll
+
+    style decision fill:#005D7B,stroke-width:0,color:#fff
+    style select fill:#7C3AED,stroke-width:0,color:#fff
+    style poll fill:#94A3B8,stroke-width:0,color:#fff
+    style parse fill:#E99151,stroke-width:0,color:#fff
+    style wfg fill:#E99151,stroke-width:0,color:#fff
+    style dfs fill:#E99151,stroke-width:0,color:#fff
+    style kill fill:#E99151,stroke-width:0,color:#fff
+    style slp fill:#94A3B8,stroke-width:0,color:#fff
 ```
 
 Six pure-code components in a pipeline. LLM only enters at the VictimSelector stage (Phase 2), the rest is deterministic.
-
-The PollingMonitor runs as an asyncio task, sharing the event loop with concurrent transactions (each in its own TCP connection to rookieDB). It loops: query `\alllocks` → parse → build WFG → detect cycles → (if found) select victim → kill → sleep → repeat.
 
 ### 3.2 Data Structures
 
@@ -320,9 +327,4 @@ Launched alongside PollingMonitor via `asyncio.TaskGroup` in `main()`.
 
 ## 4. Implementation Order
 
-```
-rookieDB capability additions (Section 2)
-  → DDA-side design (Section 3)
-    → Phase 1: Traditional algorithms + baseline comparison
-      → Phase 2: LLM Victim Selection
-```
+rookieDB capability additions (Section 2) → DDA-side design (Section 3) → Phase 1: Traditional algorithms + baseline comparison → Phase 2: LLM Victim Selection
