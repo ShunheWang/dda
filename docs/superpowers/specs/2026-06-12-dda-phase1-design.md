@@ -6,7 +6,24 @@
 
 ## 1. 架构
 
-> 配图：[dda-arch.drawio](../../../dda-arch.drawio) | 轮询循环：[dda-polling-flow.drawio](../../../dda-polling-flow.drawio)
+```mermaid
+graph TB
+    main["main() 启动"] --> yaml["加载场景 YAML"]
+    yaml --> concurrent["并发事务 + DDA 监控"]
+
+    subgraph loop["DDA 监控循环 (500ms)"]
+        direction LR
+        pipeline["\alllocks → Parse → WFG → DFS → Select"]
+        conn["长连接复用<br/>TCP:18600"]
+        selector["VictimSelector<br/>Min Locks | Youngest | Cycle Trigger"]
+        executor["RollbackExecutor<br/>\kill transNum"]
+    end
+
+    concurrent --> loop
+    pipeline --> conn
+    pipeline --> selector
+    selector --> executor
+```
 
 **数据流**: YAML → 并发事务 → \alllocks → LockSnapshot → WFG(有向图) → DFS 找环 → Victim → \kill
 
@@ -81,24 +98,36 @@ transactions:
 
 ## 4. 主流程
 
-> 配图：[dda-phase1-flow.drawio](../../../dda-phase1-flow.drawio)
+```mermaid
+flowchart TB
+    load["1. 加载 YAML 场景<br/>解析 setup / transactions"]
+    connect["2. 建立 TCP 长连接<br/>localhost:18600（复用）"]
+    setup["3. 执行 Setup SQL<br/>CREATE TABLE + INSERT<br/>主连接串行"]
+    concurrent["4. 启动并发事务<br/>asyncio.gather()<br/>每个事务独立 TCP 连接"]
 
-1. 加载 YAML 场景
-2. 建立 TCP 长连接 (localhost:18600)
-3. 主连接执行 setup SQL
-4. 启动并发事务 (asyncio.gather)
-5. DDA 监控循环启动 (500ms):
-   a. 发 \alllocks → 收文本
-   b. LockParser → LockSnapshot
-   c. WFGBuilder → WFG
-   d. CycleDetector → 环？
-       - 有环: VictimSelector(三种策略) → \kill victim → 记录结果 → 继续监控
-       - 无环: 继续轮询
-   e. 所有事务完成 → 停止监控
-6. 打印对比结果:
-   - 无 -v: 对比表格
-   - -v: 每个策略的详细分析过程 + 表格
-7. 关闭连接
+    subgraph loop["5. DDA 监控循环 (500ms)"]
+        direction TB
+        poll["a. \alllocks → 锁状态文本"]
+        parse["b. LockParser → LockSnapshot"]
+        wfg["c. WFGBuilder → WFG"]
+        dfs["d. CycleDetector → 环?"]
+        victim["e. 有环: VictimSelector(3种策略)<br/>→ \kill victim → 记录结果<br/>无环: 继续轮询"]
+        stop["f. 所有事务完成 → stop_event"]
+        poll --> parse --> wfg --> dfs --> victim --> stop
+    end
+
+    compare["6. 打印对比结果<br/>无 -v: 对比表格<br/>-v: 详细分析 + 表格"]
+    cl["7. 关闭连接"]
+
+    load --> connect --> setup --> concurrent --> loop --> compare --> cl
+
+    style load fill:#94A3B8,stroke-width:0,color:#fff
+    style connect fill:#94A3B8,stroke-width:0,color:#fff
+    style setup fill:#94A3B8,stroke-width:0,color:#fff
+    style concurrent fill:#E99151,stroke-width:0,color:#fff
+    style compare fill:#4CA497,stroke-width:0,color:#fff
+    style cl fill:#94A3B8,stroke-width:0,color:#fff
+```
 
 ## 5. 验收标准
 
@@ -115,14 +144,11 @@ transactions:
 ```
 dda/
 ├── dda_basic.py              # 主入口
-├── dda-arch.drawio           # 系统架构图
-├── dda-polling-flow.drawio   # 轮询循环流程图
-├── dda-phase1-flow.drawio    # 阶段一主流程图
 ├── scenarios/
 │   └── deadlock_2tx_basic.yaml   # 第一个死锁场景
 ├── requirements.txt          # +pyyaml
 └── docs/
-    ├── design.md             # 已有，Section 1-4
+    ├── design.md             # 系统设计（含 Mermaid 配图）
     └── ...
 ```
 

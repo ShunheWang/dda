@@ -2,18 +2,30 @@
 name: drawio-chart
 description: |
   做设计、写设计文档、画架构图时自动触发。任何需要"图"来辅助表达的场合——
-  架构图、流程图、时序图、ER图、状态机图、思维导图——就用这个 skill 生成 
-  draw.io XML 文件。不要用 ASCII art 或文字凑合，直接出图。
+  架构图、流程图、时序图、ER图、状态机图、思维导图——就用这个 skill 生成配图。
+  默认输出 Mermaid 格式（嵌入 markdown，GitHub 原生渲染），
+  需要精细排版时输出 draw.io XML。
+  不要用 ASCII art 或文字凑合，直接出图。
   触发条件：用户提到设计、架构、流程、时序、ER、状态、画图、生成图、
   或者你在写设计文档/plan 时需要配图。
 ---
 
 # 设计配图协议
 
+## 输出格式选择
+
+| 场景 | 格式 | 理由 |
+|------|------|------|
+| markdown 文档配图 | **Mermaid** | GitHub 原生渲染，零依赖，text-based diff 友好 |
+| 独立图表文件 | **Mermaid** 嵌入 md 或用 `.mmd` 文件 | 同上 |
+| 复杂精细排版 | **draw.io XML** | Mermaid 布局能力有限时用 |
+
+**默认用 Mermaid**。只有 Mermaid 实在排不出来（节点定位要求精确、多层嵌套容器、自定义形状）才降级到 draw.io。
+
 ## 铁律
 
 ```
-设计文档里该有图的地方，不准用文字凑合。直接生成 .drawio 文件。
+设计文档里该有图的地方，不准用文字凑合。直接出 Mermaid 图。
 ```
 
 ## 何时出图
@@ -32,84 +44,112 @@ description: |
 
 **原则**：宁可多出一张没用的图让用户删，也不该出的时候没出。
 
-## 图表类型速查
+## Mermaid 配色规范
 
-| 类型 | 关键视觉特征 | 文件名 |
-|------|------------|--------|
-| **架构图** | 分层容器 + 组件框 + 数据流向 | `{name}-arch.drawio` |
-| **流程图** | 圆角矩形 + 菱形判断 + 箭头 | `{name}-flow.drawio` |
-| **时序图** | 生命线 + 消息箭头 + 激活条 | `{name}-seq.drawio` |
-| **ER图** | 圆柱体(存储) + 矩形(实体) + 关系线 | `{name}-er.drawio` |
-| **状态机图** | 圆形起始 + 圆角矩形状态 + 转换箭头 | `{name}-state.drawio` |
-| **思维导图** | 中心节点 + 分支 + 层级 | `{name}-mindmap.drawio` |
+将 draw.io 色板映射到 Mermaid `style` 指令：
+
+| 语义类别 | 填充色 | 用途 |
+|---------|--------|------|
+| Business Service | `#E99151` | 核心业务服务、数据处理节点 |
+| Infrastructure | `#7C3AED` | LLM、基础设施服务 |
+| Gateway/Entry | `#005D7B` | 判断节点、入口点 |
+| Client/Frontend | `#0891B2` | 前端、外部接口 |
+| Info/Neutral | `#94A3B8` | I/O 操作、配置、Sleep 等辅助步骤 |
+| Success | `#4CA497` | 最终输出、成功状态 |
+| Alert/Danger | `#DC2626` | 异常流、"有环"分支 |
+| External | `#64748B` | 外部系统、第三方 |
+
+**Mermaid style 模板**：
+```
+style nodeId fill:#E99151,stroke:none,color:#fff
+```
+
+## Mermaid 图表模板
+
+### 架构图 → `graph TB`（上到下）+ `subgraph` 分组
+
+```mermaid
+graph TB
+    subgraph GroupName["<b>分组标签</b>"]
+        direction LR
+        NodeA["<b>节点A</b><br/>描述"]
+        NodeB["<b>节点B</b><br/>描述"]
+    end
+    External["外部系统"]
+    NodeA -->|"连线标签"| External
+```
+
+### 流程图 → `flowchart TB` + 菱形判断
+
+```mermaid
+flowchart TB
+    step1["步骤1"]
+    step2["步骤2"]
+    decision{"判断条件?"}
+    step3["步骤3"]
+    step1 --> step2 --> decision
+    decision -->|"是"| step3
+    decision -->|"否"| step1
+```
+
+### 时序图 → `sequenceDiagram`
+
+```mermaid
+sequenceDiagram
+    participant A as 客户端
+    participant B as 服务端
+    A->>B: 请求
+    B-->>A: 响应
+```
+
+### ER 图 → `erDiagram`
+
+```mermaid
+erDiagram
+    USER ||--o{ ORDER : places
+    USER { int id PK }
+    ORDER { int id PK }
+```
+
+### 状态机图 → `stateDiagram-v2`
+
+```mermaid
+stateDiagram-v2
+    [*] --> Idle
+    Idle --> Running: start
+    Running --> Done: complete
+    Done --> [*]
+```
 
 ## 生成协议
 
-### 第一步：分析需求
+### 第一步：分析需求 + 选格式
 
-- 明确要表达什么（关系？流程？结构？状态？）
-- 列出关键节点/组件/实体
-- 确认节点之间的连线关系
+- Mermaid 能表达 → 用 Mermaid（90% 的情况）
+- Mermaid 排不出 → 降级到 draw.io XML（参考 `references/design-spec.md`）
 
-### 第二步：选图 + 布局
+### 第二步：选图类型 + 布局
 
-- 按速查表选类型
-- 规划节点位置（网格对齐，10px 为单位）
-- 架构图：上到下或左到右分层
-- 流程图：主流程纵向，分支横向展开
-- 时序图：组件横向排列，消息纵向
-- ER 图：实体分散排列，关系线连接
+按速查表选 Mermaid 图表类型（graph / flowchart / sequenceDiagram / erDiagram / stateDiagram-v2）。
 
-### 第三步：生成 XML
+### 第三步：写出 Mermaid 代码
 
-严格按 `references/design-spec.md` 的配色和模板生成 draw.io XML。核心规则：
+- 配色严格用上面的 style 映射
+- 节点标签用 `<b>` 加粗标题
+- 中文内容直接写，特殊字符（`\`）注意转义
+- 连线标签精简（≤6 个字）
 
-- **配色必须用色板里的颜色**，不准自己编
-- **所有矩形开圆角** (`rounded=1`)
-- **连线用正交样式** (`edgeStyle=orthogonalEdgeStyle`)
-- **背景色 `#F8FAFC`**，字体用系统字体栈
-- **节点文字大小 13px**，连线标签 12px
-- **启用投影** (`shadow=1`)
+### 第四步：嵌入文档
 
-### 第四步：写入 + 打开
-
-```bash
-# 写入文件
-Write 到项目根目录或合适的子目录
-
-# 用系统默认应用打开（macOS）
-open {filename}.drawio
-```
+直接在 markdown 中写 ` ```mermaid ` 代码块，不要生成独立文件。
 
 ### 第五步：告知
 
-告诉用户文件路径和打开的图表。如果用户装了 draw.io CLI，可以问要不要导出 PNG/SVG。
+告诉用户在文档的哪个位置嵌入了什么图。
 
 ## 停止信号
 
-- 准备用 ASCII art 代替图 —— 停，出 draw.io
+- 准备用 ASCII art 代替图 —— 停，出 Mermaid
 - 准备用文字描述架构 —— 停，出图
-- 配色自己瞎编 —— 停，查 `references/design-spec.md`
-- 不知道该出什么类型的图 —— 默认出架构图，不会错太远
-
-## 导出（选配）
-
-如果用户要 PNG/SVG/PDF，先检测 CLI：
-
-```bash
-which drawio
-```
-
-有的话：
-```bash
-# PNG（嵌入 XML，可重新编辑）
-drawio -x -f png -e -b 10 -o {name}.drawio.png {name}.drawio
-
-# SVG
-drawio -x -f svg -e -o {name}.drawio.svg {name}.drawio
-
-# PDF
-drawio -x -f pdf -e -o {name}.drawio.pdf {name}.drawio
-```
-
-没有 CLI 就告诉用户：生成的 `.drawio` 文件可以直接拖到 app.diagrams.net 网页版打开编辑，也可以安装 draw.io 桌面版后本地导出。
+- 纠结 Mermaid 布局不够精确 —— 可以接受，先出 Mermaid。只有实在排不出才降级 draw.io
+- 不知道该出什么类型的图 —— 默认出架构图（`graph TB` + `subgraph`）

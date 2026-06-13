@@ -9,20 +9,31 @@
 
 ## 1. 系统架构
 
-> 配图：[dda-arch.drawio](../../dda-arch.drawio)
+```mermaid
+graph TB
+    subgraph DDA["DDA (Python + asyncio)"]
+        direction LR
+        tx["并发事务执行<br/>T1: socket1 | T2: socket2<br/>asyncio.gather()"]
+        monitor["DDA 监控 Task<br/>轮询锁状态 | 构造WFG<br/>DFS找环 | 选victim"]
+        llm["LLM Victim Selector<br/>Anthropic SDK<br/>语义判断 + 上下文分析"]
+    end
 
-DDA (Python + asyncio) 通过独立 TCP 连接监控 rookieDB Server (Java)，包含三个核心模块：
+    subgraph rdb["rookieDB Server (Java)"]
+        alllocks["\alllocks 锁状态查询（已有）"]
+        kill["\kill 跨连接回滚（新增）"]
+        kernel["ARIESRecoveryManager<br/>+ LockManager<br/>+ TransactionImpl"]
+    end
 
-- **并发事务执行**（纯代码）：T1/T2 各占一个 socket，asyncio.gather() 并发
-- **DDA 监控 Task**（纯代码）：轮询锁状态 → 构造 WFG → DFS 找环 → 选 victim
-- **LLM Victim Selector**：Anthropic SDK，语义判断 + 上下文分析
+    tx -.->|"TCP socket (SQL)"| rdb
+    monitor -->|"\alllocks 轮询"| alllocks
+    monitor -->|"死锁环 + 上下文"| llm
+    llm -->|"\kill victim"| kill
+```
 
-rookieDB 侧提供两个 metacommand：`\alllocks`（锁状态查询，已有）和 `\kill`（跨连接回滚，新增）。
-
-**关键边界**：
-- LLM 只在 victim selection 一个环节调用
-- 其他所有环节（SQL 执行、锁状态解析、WFG 构造、DFS 找环、ROLLBACK 执行）纯代码
-- DDA 通过独立 TCP socket 连接运行，不嵌入 rookieDB 内核
+> **关键边界**：
+> - LLM 只在 victim selection 一个环节调用
+> - 其他所有环节（SQL 执行、锁状态解析、WFG 构造、DFS 找环、ROLLBACK 执行）纯代码
+> - DDA 通过独立 TCP socket 连接运行，不嵌入 rookieDB 内核
 
 ---
 
@@ -126,9 +137,33 @@ DDA 调用的入口。执行顺序：
 
 ### 3.1 整体数据流
 
-> 配图：[dda-polling-flow.drawio](../../dda-polling-flow.drawio)
-
 PollingMonitor 是一个 asyncio Task，以 500ms 间隔循环执行：
+
+```mermaid
+flowchart TB
+    poll["1. 轮询锁状态<br/>send(\alllocks) → recv()<br/>→ raw_text"]
+    parse["2. 解析锁状态<br/>LockParser.parse(raw_text)<br/>→ LockSnapshot"]
+    wfg["3. 构造等待图<br/>WFGBuilder.build(snapshot)<br/>→ WaitForGraph"]
+    dfs["4. 检测死锁环<br/>CycleDetector.detect(wfg)<br/>DFS + 三色标记 → [cycle]"]
+    decision{"死锁?"}
+    select["5. 选定 Victim<br/>VictimSelector.select(cycle, snapshot)<br/>→ (victim, reason)"]
+    kill["6. 执行回滚<br/>RollbackExecutor.kill(victim)<br/>send(\kill transNum) → result"]
+    slp["sleep(500ms)<br/>等待下次轮询"]
+
+    poll --> parse --> wfg --> dfs --> decision
+    decision -->|"无环"| slp
+    decision -->|"有环"| select
+    select --> kill --> slp --> poll
+
+    style decision fill:#005D7B,stroke-width:0,color:#fff
+    style select fill:#7C3AED,stroke-width:0,color:#fff
+    style poll fill:#94A3B8,stroke-width:0,color:#fff
+    style parse fill:#E99151,stroke-width:0,color:#fff
+    style wfg fill:#E99151,stroke-width:0,color:#fff
+    style dfs fill:#E99151,stroke-width:0,color:#fff
+    style kill fill:#E99151,stroke-width:0,color:#fff
+    style slp fill:#94A3B8,stroke-width:0,color:#fff
+```
 
 ```
 str (\alllocks 文本)
